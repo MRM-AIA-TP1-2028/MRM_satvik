@@ -1,5 +1,9 @@
+import os
+
 import cv2
 import numpy as np
+
+CALIB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calibration.npz")
 
 MARKER_SIZE = 0.05  # side of the black square in metres (measure your printout)
 
@@ -21,13 +25,18 @@ cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 ok, frame = cap.read()
 h, w = frame.shape[:2]
 
-# Camera intrinsics: use calibration.npz if it exists, else a rough guess
-try:
-    calib = np.load("calibration.npz")
-    K, dist = calib["K"], calib["dist"]
-except FileNotFoundError:
+# Camera intrinsics: use calibration.npz (from calibrate.py) if it exists, else a rough guess
+if os.path.isfile(CALIB_FILE):
+    calib = np.load(CALIB_FILE)
+    K, dist = calib["K"].astype(np.float64), calib["dist"].astype(np.float64)
+    cw, ch = (int(v) for v in calib["image_size"])
+    K[0, :] *= w / cw                         # intrinsics are in pixels: rescale if the
+    K[1, :] *= h / ch                         # camera runs at a different resolution
+    print(f"using {CALIB_FILE}")
+else:
     K = np.array([[w, 0, w / 2], [0, w, h / 2], [0, 0, 1]], dtype=np.float64)
     dist = np.zeros(5)
+    print("No calibration file: depth is approximate (run calibrate.py)")
 
 while ok:
     for name, detector in detectors.items():

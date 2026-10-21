@@ -5,19 +5,39 @@ The window shows what a camera with those values would see when looking
 straight at a flat chessboard. Thin red lines are where the squares would be
 with a perfect lens (all zeros).
 
+Your webcam's values are read from calibration.npz (made by calibrate.py);
+without it, a typical webcam is used.
+
 Run:   python distortion_demo.py
 Keys:  r = your webcam's calibrated values,  z = all zeros,  q / Esc = quit
 """
+
+import os
 
 import cv2
 import numpy as np
 
 W, H = 640, 480
-FX = FY = 396.0              # from calibration.npz
-CX, CY = W / 2, H / 2
 SQUARE = 40                  # chessboard square size in pixels (in the ideal image)
+CALIB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calibration.npz")
 
-MINE = {"k1": -0.0403, "k2": 0.0049, "p1": -0.0094, "p2": 0.0058, "k3": 0.0224}
+
+def load_camera():
+    """(fx, fy, cx, cy, coefficients) from calibration.npz, rescaled to W x H."""
+    if os.path.isfile(CALIB_FILE):
+        data = np.load(CALIB_FILE)
+        K, d = data["K"], data["dist"].ravel()
+        cw, ch = (int(v) for v in data["image_size"]) if "image_size" in data else (W, H)
+        sx, sy = W / cw, H / ch
+        coeffs = dict(zip(["k1", "k2", "p1", "p2", "k3"], (float(v) for v in d[:5])))
+        print(f"using {CALIB_FILE}")
+        return K[0, 0] * sx, K[1, 1] * sy, K[0, 2] * sx, K[1, 2] * sy, coeffs
+    print("No calibration file: showing a typical webcam (run calibrate.py)")
+    return 396.0, 396.0, W / 2, H / 2, {"k1": -0.0403, "k2": 0.0049, "p1": -0.0094,
+                                        "p2": 0.0058, "k3": 0.0224}
+
+
+FX, FY, CX, CY, MINE = load_camera()
 
 # name -> (min, max). Each slider has 200 steps across its range.
 RANGES = {

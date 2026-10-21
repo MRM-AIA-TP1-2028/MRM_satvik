@@ -304,7 +304,9 @@ def main():
                     help="printed marker side (black square) in metres (default 0.05)")
     ap.add_argument("--size", action="append", metavar="DICT=METRES",
                     help="per-dictionary marker size, e.g. --size 6x6=0.08 (repeatable)")
-    ap.add_argument("--calib", default="calibration.npz", help="calibration file from calibrate.py")
+    ap.add_argument("--calib", default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                     "calibration.npz"),
+                    help="calibration file from calibrate.py (default: next to this script)")
     ap.add_argument("--dict-size", type=int, default=250, choices=[50, 100, 250, 1000],
                     help="markers per dictionary (default 250)")
     ap.add_argument("--width", type=int, default=640)

@@ -13,7 +13,7 @@ import numpy as np
 
 MARKER_SIZE = 0.05           # printed black-square side in metres
 SIZES = {}                   # per-family override, e.g. {"6x6": 0.08}
-CALIB_FILE = "calibration.npz"
+CALIB_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calibration.npz")
 WIDTH, HEIGHT = 640, 480
 
 
@@ -84,8 +84,8 @@ def main():
     h, w = frame.shape[:2]
 
     K, dist, calibrated = load_calibration(CALIB_FILE, w, h)
-    if not calibrated:
-        print("No calibration file: depth is approximate (run calibrate.py)")
+    print(f"using {CALIB_FILE}" if calibrated
+          else "No calibration file: depth is approximate (run calibrate.py)")
     detectors = make_detectors()
 
     while ok:
