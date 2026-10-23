@@ -11,12 +11,18 @@ Windows
               right: black panel with (x, y) of each blue object, its position
               relative to the ball and distance traversed
     Masks   - (toggle with 'm') the blue and ball HSV masks
+    Ball mask maker - (open with 'b') sliders for the ball's HSV range; left: camera
+              with the ball found using the slider values, right: the mask
 
 Keys
     q / Esc  quit
     c        clear trails and traversed distances
     r        reset the blue HSV range to the default
     m        toggle mask windows
+    b        open the ball mask maker
+               Enter / Space  use the slider values as the ball mask
+               d              set the sliders back to the default range
+               b / Esc        close without changing the ball mask
     click    on a blue object in the camera view to select its colour
 """
 
@@ -133,9 +139,9 @@ def find_blue(hsv, lo, hi, min_area):
     return objects, mask
 
 
-def find_ball(hsv, min_area, min_circularity=0.6, min_fill=0.5):
-    """The most ball-like yellow-green blob, or None."""
-    mask = clean_mask(cv2.inRange(hsv, *BALL_RANGE))
+def find_ball(hsv, lo, hi, min_area, min_circularity=0.6, min_fill=0.5):
+    """The most ball-like blob inside the [lo, hi] HSV range, or None."""
+    mask = clean_mask(cv2.inRange(hsv, lo, hi))
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     best, best_score = None, 0.0
     for c in contours:
@@ -223,6 +229,7 @@ class Pipeline:
         self.scale = ScaleEstimator(marker_cm)
         self.tracker = CentroidTracker()
         self.blue_lo, self.blue_hi = (a.copy() for a in DEFAULT_BLUE)
+        self.ball_lo, self.ball_hi = (a.copy() for a in BALL_RANGE)
         self.min_blue_area = min_blue_area
         self.min_ball_area = min_ball_area
         self.hsv = None
@@ -232,7 +239,7 @@ class Pipeline:
         self.hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        ball, ball_mask = find_ball(self.hsv, self.min_ball_area)
+        ball, ball_mask = find_ball(self.hsv, self.ball_lo, self.ball_hi, self.min_ball_area)
         corners = self.scale.update(gray, ball)
         blue, blue_mask = find_blue(self.hsv, self.blue_lo, self.blue_hi, self.min_blue_area)
         tracks = self.tracker.update(blue, self.scale.px_per_cm)
@@ -251,6 +258,60 @@ class Pipeline:
 
     def reset_blue(self):
         self.blue_lo, self.blue_hi = (a.copy() for a in DEFAULT_BLUE)
+
+
+class BallMaskMaker:
+    """Window with HSV sliders for setting the ball's mask by hand."""
+
+    WINDOW = "Ball mask maker"
+    SLIDERS = [("H low", 179), ("H high", 179), ("S low", 255),
+               ("S high", 255), ("V low", 255), ("V high", 255)]
+
+    def __init__(self, pipe):
+        self.pipe = pipe
+        cv2.namedWindow(self.WINDOW)
+        for name, top in self.SLIDERS:
+            cv2.createTrackbar(name, self.WINDOW, 0, top, lambda _: None)
+        self.set_range(pipe.ball_lo, pipe.ball_hi)
+
+    def set_range(self, lo, hi):
+        for i, v in enumerate(np.stack([lo, hi], axis=1).ravel()):
+            cv2.setTrackbarPos(self.SLIDERS[i][0], self.WINDOW, int(v))
+
+    def get_range(self):
+        v = [cv2.getTrackbarPos(name, self.WINDOW) for name, _ in self.SLIDERS]
+        return np.array(v[0::2], np.uint8), np.array(v[1::2], np.uint8)
+
+    def show(self, frame):
+        blurred = cv2.GaussianBlur(frame, (5, 5), 0)
+        hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+        lo, hi = self.get_range()
+        ball, mask = find_ball(hsv, lo, hi, self.pipe.min_ball_area)
+
+        view = frame.copy()
+        if ball:
+            cv2.circle(view, pt(ball["center"]), int(round(ball["radius"])), BALL_COLOR, 2)
+        put(view, f"H {lo[0]}-{hi[0]}  S {lo[1]}-{hi[1]}  V {lo[2]}-{hi[2]}  "
+                  f"ball: {'found' if ball else 'not found'}", (10, 25), size=0.6)
+        put(view, "Enter use mask | d default | b/Esc cancel",
+            (10, view.shape[0] - 12), GRAY, size=0.6)
+
+        h, w = frame.shape[:2]
+        size = (w // 2, h // 2)  # half size so both fit side by side
+        both = np.hstack([cv2.resize(view, size), cv2.resize(cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR), size)])
+        cv2.imshow(self.WINDOW, both)
+
+    def handle_key(self, key):
+        """Return True when the maker should close."""
+        if key in (13, 10, ord(" ")):
+            self.pipe.ball_lo, self.pipe.ball_hi = self.get_range()
+            return True
+        if key == ord("d"):
+            self.set_range(*BALL_RANGE)
+        return key in (ord("b"), 27)
+
+    def close(self):
+        cv2.destroyWindow(self.WINDOW)
 
 
 def pt(p):
@@ -317,7 +378,7 @@ def draw_camera(frame, result, scale):
     else:
         hud = "Scale: no marker or ball yet - showing px"
     put(frame, hud, (10, 25), size=0.6)
-    put(frame, "click blue to select | c clear | r reset | m masks | q quit",
+    put(frame, "click blue to select | c clear | r reset | m masks | b ball mask | q quit",
         (10, frame.shape[0] - 12), GRAY, size=0.45)
     return frame
 
@@ -364,6 +425,7 @@ def main():
 
     pipe = Pipeline(MARKER_CM, MIN_BLUE_AREA, MIN_BALL_AREA)
     show_masks = False
+    maker = None  # BallMaskMaker while it is open
 
     cv2.namedWindow("Tracker")
     frame_w = 0  # clicks right of this are on the text panel
@@ -381,6 +443,14 @@ def main():
             break
         if MIRROR:
             frame = cv2.flip(frame, 1)
+
+        if maker:
+            maker.show(frame)
+            if maker.handle_key(cv2.waitKey(1) & 0xFF):
+                maker.close()
+                maker = None
+            continue
+
         result = pipe.process(frame)
         frame_w = frame.shape[1]
         view = draw_camera(frame.copy(), result, pipe.scale)
@@ -397,6 +467,8 @@ def main():
         elif key == ord("r"):
             pipe.reset_blue()
             pipe.tracker.reset()
+        elif key == ord("b"):
+            maker = BallMaskMaker(pipe)
         elif key == ord("m"):
             show_masks = not show_masks
             if not show_masks:

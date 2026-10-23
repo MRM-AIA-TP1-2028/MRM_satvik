@@ -27,7 +27,13 @@ Settings are constants at the top of `tracker.py`. Edit them before running:
 On a MacBook, turn **Center Stage off** (Control Centre → Video Effects) while measuring. It zooms and pans the image, which changes the px-per-cm scale.
 
 Keys: **click** a blue object to select its colour · `c` clear trails ·
-`r` reset colour · `m` show HSV masks · `q` quit.
+`r` reset colour · `m` show HSV masks · `b` ball mask maker · `q` quit.
+
+**Ball mask maker (`b`).** Opens a window with six sliders (H, S and V low/high)
+for the ball's HSV range. The left half shows the camera with the ball found
+using the slider values, the right half shows the mask. Press **Enter** (or
+Space) to use that range, `d` to put the sliders back to the default range, and
+`b` or `Esc` to close without changing anything.
 
 ## What it shows
 
