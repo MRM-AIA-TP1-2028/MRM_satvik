@@ -4,3 +4,9 @@ __pycache__/
 
 # Generated tracker videos (69-81 MB each); rerun the scripts to regenerate
 working/task2_open_cv_ball/*/output/*.mp4
+
+# WhatsApp chat exports
+*WhatsApp Chat*.zip
+AIA Taskphase 2028.zip
+chat.txt
+chat.md
