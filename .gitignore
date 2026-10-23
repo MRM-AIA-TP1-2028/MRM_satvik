@@ -1,1 +1,6 @@
-working/
+.DS_Store
+__pycache__/
+*.pyc
+
+# Generated tracker videos (69-81 MB each); rerun the scripts to regenerate
+working/task2_open_cv_ball/*/output/*.mp4

@@ -1,0 +1,341 @@
+<title>tracker.py Program Map</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one schematic sheet up top (the whole program), then reference sections that zoom into each stage */
+:root {
+  --bg: #eef1f4;
+  --sheet: #f8fafb;
+  --fg: #18212b;
+  --muted: #5a6876;
+  --line: #8995a2;
+  --grid: #dde3e9;
+  --scale: #6a4fc2;  --scale-bg: #ece7fa;
+  --blue: #1f63c9;   --blue-bg: #e2ecfb;
+  --ball: #5d8a00;   --ball-bg: #edf5d9;
+  --track: #c2620a;  --track-bg: #fbeadb;
+  --show: #36414d;   --show-bg: #e6eaee;
+  --font-display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --font-body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f141a; --sheet: #151c24; --fg: #e3e9ef; --muted: #98a6b4; --line: #6b7887; --grid: #1e2731;
+  --scale: #a993f0; --scale-bg: #261f3d;
+  --blue: #6fa6f5;  --blue-bg: #14273f;
+  --ball: #a6d14a;  --ball-bg: #1f2a10;
+  --track: #f0a05a; --track-bg: #33220f;
+  --show: #c3ccd5;  --show-bg: #222b35;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0f141a; --sheet: #151c24; --fg: #e3e9ef; --muted: #98a6b4; --line: #6b7887; --grid: #1e2731;
+  --scale: #a993f0; --scale-bg: #261f3d;
+  --blue: #6fa6f5;  --blue-bg: #14273f;
+  --ball: #a6d14a;  --ball-bg: #1f2a10;
+  --track: #f0a05a; --track-bg: #33220f;
+  --show: #c3ccd5;  --show-bg: #222b35;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.55; }
+.wrap { max-width: 1160px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 32px 64px; display: grid; gap: 44px; }
+h1, h2 { font-family: var(--font-display); font-weight: 600; letter-spacing: 0.01em; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2.2rem, 5vw, 3.2rem); line-height: 1.05; }
+h2 { font-size: 1.75rem; line-height: 1.15; }
+p { margin: 0; max-width: 68ch; }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+header { display: grid; gap: 12px; }
+section { display: grid; gap: 16px; }
+.sheet { background: var(--sheet); border: 1px solid var(--grid); border-radius: 10px; overflow-x: auto; }
+.sheet svg { display: block; min-width: 980px; width: 100%; height: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 0.9rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.sw { width: 14px; height: 14px; border-radius: 3px; border: 2px solid; }
+
+/* svg styling through tokens */
+svg text { font-family: var(--font-body); fill: var(--fg); }
+svg .t { font-weight: 700; font-size: 15px; }
+svg .s { font-size: 13px; fill: var(--muted); }
+svg .m { font-family: var(--font-mono); font-size: 12px; fill: var(--muted); }
+svg .lab { font-family: var(--font-display); font-weight: 600; font-size: 19px; letter-spacing: 0.04em; fill: var(--muted); }
+svg .edge { stroke: var(--line); stroke-width: 1.6; fill: none; }
+svg .dash { stroke-dasharray: 6 5; }
+svg .frame { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 3 5; }
+svg .box { fill: var(--sheet); stroke: var(--line); stroke-width: 1.2; }
+svg .k-scale { fill: var(--scale-bg); stroke: var(--scale); }
+svg .k-blue { fill: var(--blue-bg); stroke: var(--blue); }
+svg .k-ball { fill: var(--ball-bg); stroke: var(--ball); }
+svg .k-track { fill: var(--track-bg); stroke: var(--track); }
+svg .k-show { fill: var(--show-bg); stroke: var(--show); }
+svg .k-scale, svg .k-blue, svg .k-ball, svg .k-track, svg .k-show { stroke-width: 1.5; }
+svg .c-scale { fill: var(--scale); } svg .c-blue { fill: var(--blue); } svg .c-ball { fill: var(--ball); } svg .c-track { fill: var(--track); }
+svg .e-scale { stroke: var(--scale); } svg .e-ball { stroke: var(--ball); } svg .e-blue { stroke: var(--blue); }
+svg .arrowhead { fill: var(--line); }
+
+/* reading order */
+ol.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; counter-reset: s; }
+ol.steps li { counter-increment: s; display: grid; grid-template-columns: 2.4rem 1fr; gap: 12px; align-items: start; }
+ol.steps li::before { content: counter(s); font-family: var(--font-display); font-weight: 700; font-size: 1.5rem; line-height: 1.2; color: var(--muted); text-align: right; }
+ol.steps li > div { min-width: 0; max-width: 72ch; }
+
+/* function table */
+.tablewrap { overflow-x: auto; border: 1px solid var(--grid); border-radius: 10px; background: var(--sheet); }
+table { border-collapse: collapse; width: 100%; min-width: 820px; font-size: 0.93rem; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--grid); }
+th { font-family: var(--font-mono); font-size: 0.74rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+tr:last-child td { border-bottom: 0; }
+td:first-child { font-family: var(--font-mono); font-size: 0.85rem; white-space: nowrap; }
+.tag { display: inline-block; font-family: var(--font-mono); font-size: 0.72rem; padding: 1px 8px; border-radius: 999px; border: 1px solid; white-space: nowrap; }
+.tag.scale { color: var(--scale); background: var(--scale-bg); }
+.tag.blue { color: var(--blue); background: var(--blue-bg); }
+.tag.ball { color: var(--ball); background: var(--ball-bg); }
+.tag.track { color: var(--track); background: var(--track-bg); }
+.tag.show { color: var(--show); background: var(--show-bg); }
+.tag.setup { color: var(--muted); background: transparent; }
+
+/* maths + data */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; }
+.card { background: var(--sheet); border: 1px solid var(--grid); border-radius: 10px; padding: 16px 18px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.card h3 { margin: 0; font-size: 1rem; font-weight: 700; }
+.formula { font-family: var(--font-mono); font-size: 0.9rem; background: var(--bg); border-radius: 6px; padding: 8px 10px; overflow-x: auto; white-space: nowrap; }
+.card p { font-size: 0.93rem; color: var(--muted); }
+pre { margin: 0; font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.6; background: var(--bg); border-radius: 6px; padding: 10px 12px; overflow-x: auto; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">MRM Taskphase · Blue object + tennis ball with scale estimation</div>
+    <h1>How tracker.py works</h1>
+    <p>The program reads a webcam, finds blue objects and a tennis ball in every frame, and measures them in centimetres using an ArUco marker of known size. The map below is the whole program: startup runs once, then the main loop repeats for every frame.</p>
+  </header>
+
+  <section aria-label="Program map">
+    <div class="legend">
+      <span><i class="sw" style="border-color:var(--scale);background:var(--scale-bg)"></i>Scale (ArUco → px per cm)</span>
+      <span><i class="sw" style="border-color:var(--blue);background:var(--blue-bg)"></i>Blue objects</span>
+      <span><i class="sw" style="border-color:var(--ball);background:var(--ball-bg)"></i>Tennis ball</span>
+      <span><i class="sw" style="border-color:var(--track);background:var(--track-bg)"></i>Tracking (IDs, trails, distance)</span>
+      <span><i class="sw" style="border-color:var(--show);background:var(--show-bg)"></i>Display and keys</span>
+    </div>
+    <div class="sheet">
+<svg viewBox="0 0 1120 1010" role="img" aria-labelledby="mapTitle">
+  <title id="mapTitle">Flow of tracker.py from startup through the per-frame loop</title>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="arrowhead" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <!-- STARTUP -->
+  <text class="lab" x="40" y="32">1 · STARTUP: RUNS ONCE IN main()</text>
+  <rect class="box" x="40" y="45" width="240" height="70" rx="8"/>
+  <text class="t" x="56" y="70">Settings at top of file</text>
+  <text class="m" x="56" y="92">SOURCE, MARKER_CM</text>
+  <text class="s" x="56" y="108">min areas, frame size (edit to change)</text>
+
+  <rect class="box" x="306" y="45" width="240" height="70" rx="8"/>
+  <text class="t" x="322" y="70">Open the camera</text>
+  <text class="m" x="322" y="92">cv2.VideoCapture(source)</text>
+  <text class="s" x="322" y="108">set width 1280 × height 720</text>
+
+  <rect class="box" x="572" y="45" width="240" height="70" rx="8"/>
+  <text class="t" x="588" y="70">Build the pipeline</text>
+  <text class="m" x="588" y="92">Pipeline(...)</text>
+  <text class="s" x="588" y="108">makes ScaleEstimator + CentroidTracker</text>
+
+  <rect class="box" x="838" y="45" width="240" height="70" rx="8"/>
+  <text class="t" x="854" y="70">Open two windows</text>
+  <text class="m" x="854" y="92">namedWindow("Camera"/"Info")</text>
+  <text class="s" x="854" y="108">setMouseCallback → on_mouse</text>
+
+  <path class="edge" d="M280,80 H302" marker-end="url(#ah)"/>
+  <path class="edge" d="M546,80 H568" marker-end="url(#ah)"/>
+  <path class="edge" d="M812,80 H834" marker-end="url(#ah)"/>
+  <path class="edge" d="M958,115 V130 H560 V186" marker-end="url(#ah)"/>
+
+  <!-- LOOP FRAME -->
+  <rect class="frame" x="20" y="146" width="1080" height="850" rx="14"/>
+  <text class="lab" x="40" y="172">2 · MAIN LOOP: RUNS FOR EVERY FRAME</text>
+
+  <!-- grab frame -->
+  <rect class="box" x="440" y="190" width="240" height="56" rx="8"/>
+  <text class="t" x="456" y="213">Grab a frame</text>
+  <text class="m" x="456" y="234">ok, frame = cap.read()</text>
+
+  <!-- mouse -->
+  <rect class="box dash" x="760" y="190" width="320" height="56" rx="8"/>
+  <text class="t" x="776" y="212">Click on Camera window → on_mouse</text>
+  <text class="s" x="776" y="234">select_blue: new blue range from clicked colour</text>
+  <path class="edge dash e-blue" d="M790,246 V262 H730 V417 H714" marker-end="url(#ah)"/>
+
+  <path class="edge" d="M560,246 V272" marker-end="url(#ah)"/>
+
+  <!-- preprocess -->
+  <rect class="box" x="340" y="276" width="440" height="74" rx="8"/>
+  <text class="t" x="356" y="299">Pipeline.process(frame): prepare the image</text>
+  <text class="m" x="356" y="320">GaussianBlur 5×5 → cvtColor BGR→HSV</text>
+  <text class="s" x="356" y="339">plus cvtColor BGR→GRAY for the ArUco search</text>
+
+  <!-- fan out -->
+  <path class="edge" d="M560,350 V372 M220,372 H900 M220,372 V391 M560,372 V391 M900,372 V391"/>
+  <path class="edge" d="M220,385 V391" marker-end="url(#ah)"/>
+  <path class="edge" d="M560,385 V391" marker-end="url(#ah)"/>
+  <path class="edge" d="M900,385 V391" marker-end="url(#ah)"/>
+  <text class="s" x="232" y="388">gray</text>
+  <text class="s" x="572" y="388">hsv</text>
+  <text class="s" x="912" y="388">hsv</text>
+
+  <!-- column A: scale -->
+  <rect class="k-scale" x="70" y="395" width="300" height="44" rx="8"/>
+  <text class="t c-scale" x="86" y="415">Scale</text>
+  <text class="m" x="86" y="432">ScaleEstimator.update(gray)</text>
+  <rect class="box" x="70" y="450" width="300" height="40" rx="6"/><text class="s" x="84" y="475">detectMarkers: DICT_4X4_50 (IDs 0–49)</text>
+  <rect class="box" x="70" y="502" width="300" height="40" rx="6"/><text class="s" x="84" y="527">measure each marker's 4 sides in px</text>
+  <rect class="box" x="70" y="554" width="300" height="40" rx="6"/><text class="s" x="84" y="579">px per cm = mean side ÷ marker_cm</text>
+  <rect class="box" x="70" y="606" width="300" height="40" rx="6"/><text class="s" x="84" y="631">smooth: 70% old value + 30% new</text>
+  <rect class="k-scale" x="70" y="658" width="300" height="36" rx="18"/><text class="t c-scale" x="88" y="681" style="font-size:14px">→ px_per_cm (kept if marker is lost)</text>
+  <path class="edge" d="M220,439 V446 M220,490 V498 M220,542 V550 M220,594 V602 M220,646 V654"/>
+
+  <!-- column B: blue -->
+  <rect class="k-blue" x="410" y="395" width="300" height="44" rx="8"/>
+  <text class="t c-blue" x="426" y="415">Blue objects</text>
+  <text class="m" x="426" y="432">find_blue(hsv, lo, hi, min_area)</text>
+  <rect class="box" x="410" y="450" width="300" height="40" rx="6"/><text class="s" x="424" y="475">inRange: hue 100–130 → black/white mask</text>
+  <rect class="box" x="410" y="502" width="300" height="40" rx="6"/><text class="s" x="424" y="527">clean_mask: open (specks) + close (holes)</text>
+  <rect class="box" x="410" y="554" width="300" height="40" rx="6"/><text class="s" x="424" y="579">findContours: outline of each blob</text>
+  <rect class="box" x="410" y="606" width="300" height="40" rx="6"/><text class="s" x="424" y="631">keep area ≥ 600 px²; centre from moments</text>
+  <rect class="k-blue" x="410" y="658" width="300" height="36" rx="18"/><text class="t c-blue" x="428" y="681" style="font-size:14px">→ list of blue objects</text>
+  <path class="edge" d="M560,439 V446 M560,490 V498 M560,542 V550 M560,594 V602 M560,646 V654"/>
+
+  <!-- column C: ball -->
+  <rect class="k-ball" x="750" y="395" width="300" height="44" rx="8"/>
+  <text class="t c-ball" x="766" y="415">Tennis ball</text>
+  <text class="m" x="766" y="432">find_ball(hsv, min_area)</text>
+  <rect class="box" x="750" y="450" width="300" height="40" rx="6"/><text class="s" x="764" y="475">inRange: hue 22–43 → mask</text>
+  <rect class="box" x="750" y="502" width="300" height="40" rx="6"/><text class="s" x="764" y="527">clean_mask + findContours</text>
+  <rect class="box" x="750" y="554" width="300" height="40" rx="6"/><text class="s" x="764" y="579">round enough? circularity ≥ 0.6, fill ≥ 0.5</text>
+  <rect class="box" x="750" y="606" width="300" height="40" rx="6"/><text class="s" x="764" y="631">best blob → minEnclosingCircle (c, r)</text>
+  <rect class="k-ball" x="750" y="658" width="300" height="36" rx="18"/><text class="t c-ball" x="768" y="681" style="font-size:14px">→ ball (centre, radius) or None</text>
+  <path class="edge" d="M900,439 V446 M900,490 V498 M900,542 V550 M900,594 V602 M900,646 V654"/>
+
+  <!-- merge into tracker -->
+  <path class="edge e-scale" d="M220,694 V716 H440 V726" marker-end="url(#ah)"/>
+  <text class="s" x="232" y="711">px_per_cm</text>
+  <path class="edge e-blue" d="M560,694 V726" marker-end="url(#ah)"/>
+  <text class="s" x="572" y="716">objects</text>
+
+  <rect class="k-track" x="300" y="730" width="520" height="74" rx="8"/>
+  <text class="t c-track" x="316" y="752">CentroidTracker.update(objects, px_per_cm)</text>
+  <text class="s" x="316" y="773">match each object to the nearest old track (≤ 120 px) so it keeps its ID</text>
+  <text class="s" x="316" y="793">add distance if it moved ≥ 3 px · new ID if unmatched · drop after 15 misses</text>
+
+  <!-- to drawing -->
+  <path class="edge" d="M560,804 V822"/>
+  <text class="s" x="572" y="818">tracks</text>
+  <path class="edge e-ball" d="M900,694 V822"/>
+  <text class="s" x="910" y="760">ball</text>
+  <path class="edge" d="M340,822 H900"/>
+  <path class="edge" d="M340,822 V831" marker-end="url(#ah)"/>
+  <path class="edge" d="M780,822 V831" marker-end="url(#ah)"/>
+
+  <rect class="k-show" x="150" y="835" width="380" height="74" rx="8"/>
+  <text class="t" x="166" y="857">draw_camera → "Camera" window</text>
+  <text class="s" x="166" y="877">drawContours outline + rotated box, trail, B# area</text>
+  <text class="s" x="166" y="896">ball circle, c, r px, area · line to ball with dx dy d</text>
+
+  <rect class="k-show" x="590" y="835" width="380" height="74" rx="8"/>
+  <text class="t" x="606" y="857">draw_info → "Info" window (black)</text>
+  <text class="s" x="606" y="877">per object: (x, y), position wrt ball, traversed</text>
+  <text class="s" x="606" y="896">map of objects + distances between blue objects</text>
+
+  <path class="edge" d="M340,909 V920 H780 V909 M560,920 V928" />
+  <path class="edge" d="M560,922 V928" marker-end="url(#ah)"/>
+
+  <rect class="box" x="380" y="932" width="360" height="48" rx="8"/>
+  <text class="t" x="396" y="954">imshow both windows · waitKey(1)</text>
+  <text class="s" x="396" y="972">reads one key press per frame</text>
+
+  <path class="edge" d="M740,956 H766" marker-end="url(#ah)"/>
+  <rect class="box" x="770" y="932" width="310" height="48" rx="8"/>
+  <text class="m" x="784" y="953">q/Esc quit · c clear trails</text>
+  <text class="m" x="784" y="971">r reset blue · m show masks</text>
+
+  <!-- loop back -->
+  <path class="edge" d="M380,956 H44 V218 H436" marker-end="url(#ah)"/>
+  <text class="s" x="52" y="600" transform="rotate(-90 52 600)">next frame</text>
+</svg>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">Teaching it</div>
+    <h2>Explain it in this order</h2>
+    <ol class="steps">
+      <li><div><strong>The goal.</strong> Each frame, find blue things of any shape and one tennis ball, keep the two separate, and give their sizes in cm.</div></li>
+      <li><div><strong>Colour, not shape, finds things.</strong> The frame is blurred to cut noise, then converted to HSV, where hue is the colour itself. A shadow changes brightness (V) but barely changes hue, so one hue range catches the object under different lighting. Blue is hue 100–130, the ball's yellow-green is 22–43.</div></li>
+      <li><div><strong>Mask, clean, outline.</strong> <code>inRange</code> turns the frame into a black-and-white mask. Morphology tidies it: opening removes specks, closing fills holes. <code>findContours</code> then gives the outline of each white blob.</div></li>
+      <li><div><strong>Blue vs ball.</strong> Every big-enough blue outline is accepted, because blue objects can be any shape. A ball candidate must also be round: it is rejected unless its circularity and fill ratio are high enough.</div></li>
+      <li><div><strong>Pixels to centimetres.</strong> The ArUco marker has a known real size. Its side in pixels divided by its side in cm gives px per cm. Lengths are divided by that number, and areas by its square.</div></li>
+      <li><div><strong>Tracking.</strong> Each frame's blue objects are matched to last frame's by nearest centre. That gives each object a stable ID, a trail and a running total of the distance it has travelled.</div></li>
+      <li><div><strong>Display.</strong> The Camera window draws on the real image. The Info window repeats the numbers on a black background. Clicking a blue object retunes the blue colour range to that exact shade.</div></li>
+    </ol>
+  </section>
+
+  <section>
+    <div class="eyebrow">Reference</div>
+    <h2>Every function</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Function</th><th>Stage</th><th>Takes</th><th>Gives back</th><th>OpenCV / NumPy used</th></tr></thead>
+        <tbody>
+          <tr><td>main()</td><td><span class="tag setup">setup + loop</span></td><td>settings constants (SOURCE, MARKER_CM, ...)</td><td>runs everything until you quit</td><td>VideoCapture, namedWindow, setMouseCallback, imshow, waitKey</td></tr>
+          <tr><td>Pipeline.process</td><td><span class="tag setup">per frame</span></td><td>one BGR frame</td><td>result: tracks, ball, marker corners, masks</td><td>GaussianBlur, cvtColor</td></tr>
+          <tr><td>ScaleEstimator.update</td><td><span class="tag scale">scale</span></td><td>grey frame</td><td>marker corners; updates px_per_cm</td><td>aruco.ArucoDetector.detectMarkers, np.linalg.norm</td></tr>
+          <tr><td>ScaleEstimator.length / .area</td><td><span class="tag scale">scale</span></td><td>a value in px or px²</td><td>text in cm / cm², or px if no marker yet</td><td>none</td></tr>
+          <tr><td>find_blue</td><td><span class="tag blue">blue</span></td><td>HSV frame, blue range, min area</td><td>list of {contour, area_px, center}</td><td>inRange, findContours, contourArea</td></tr>
+          <tr><td>find_ball</td><td><span class="tag ball">ball</span></td><td>HSV frame, min area</td><td>{center, radius, area_px} or None</td><td>inRange, findContours, arcLength, minEnclosingCircle</td></tr>
+          <tr><td>clean_mask</td><td><span class="tag blue">blue</span> <span class="tag ball">ball</span></td><td>raw mask</td><td>mask without specks or holes</td><td>morphologyEx (OPEN, CLOSE)</td></tr>
+          <tr><td>centroid</td><td><span class="tag blue">blue</span></td><td>one contour</td><td>centre (x, y)</td><td>moments</td></tr>
+          <tr><td>CentroidTracker.update</td><td><span class="tag track">tracking</span></td><td>blue objects, px_per_cm</td><td>visible tracks with IDs, trails, distance</td><td>math.dist</td></tr>
+          <tr><td>Pipeline.select_blue</td><td><span class="tag blue">blue</span></td><td>clicked (x, y)</td><td>new blue HSV range (±10 hue)</td><td>np.median</td></tr>
+          <tr><td>relative</td><td><span class="tag show">display</span></td><td>object centre, ball</td><td>"dx dy d" text</td><td>math.hypot</td></tr>
+          <tr><td>draw_camera</td><td><span class="tag show">display</span></td><td>frame, result, scale</td><td>annotated camera image</td><td>drawContours, minAreaRect, boxPoints, polylines, circle, line, aruco.drawDetectedMarkers</td></tr>
+          <tr><td>draw_info</td><td><span class="tag show">display</span></td><td>frame size, result, scale</td><td>black info image</td><td>np.zeros, line, circle, polylines</td></tr>
+          <tr><td>put / pt</td><td><span class="tag show">display</span></td><td>text or a float point</td><td>outlined text / integer point</td><td>putText</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">Reference</div>
+    <h2>The maths, in one place</h2>
+    <div class="grid">
+      <div class="card"><h3>Scale</h3><div class="formula">px_per_cm = mean marker side (px) ÷ marker_cm</div><p>Then smoothed each frame: new = 0.7 × old + 0.3 × measured.</p></div>
+      <div class="card"><h3>Pixels to centimetres</h3><div class="formula">cm = px ÷ px_per_cm<br>cm² = px² ÷ px_per_cm²</div><p>Area divides by the square, because both width and height shrink.</p></div>
+      <div class="card"><h3>Centre of a shape</h3><div class="formula">x = m10 ÷ m00, y = m01 ÷ m00</div><p>From <code>cv2.moments</code>. m00 is the area.</p></div>
+      <div class="card"><h3>Is it round?</h3><div class="formula">circularity = 4πA ÷ P²<br>fill = A ÷ (πr²)</div><p>A circle scores 1 on both. Ball needs ≥ 0.6 and ≥ 0.5.</p></div>
+      <div class="card"><h3>Position relative to the ball</h3><div class="formula">dx = x_blue − x_ball<br>dy = y_blue − y_ball<br>d = √(dx² + dy²)</div><p>+x is right and +y is down, as in image coordinates.</p></div>
+      <div class="card"><h3>Distance travelled</h3><div class="formula">total += step, if step ≥ 3 px</div><p>Small steps are camera jitter and are ignored, so a still object stays at 0.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">Reference</div>
+    <h2>Data passed between functions</h2>
+    <div class="grid">
+      <div class="card"><h3>Blue object <span class="tag blue">find_blue</span></h3><pre>{ "contour": outline points,
+  "area_px": 2310.5,
+  "center": (412.3, 220.8) }</pre></div>
+      <div class="card"><h3>Ball <span class="tag ball">find_ball</span></h3><pre>{ "center": (640.0, 360.0),
+  "radius": 38.2,
+  "area_px": 4584.3,
+  "circularity": 0.87 }</pre></div>
+      <div class="card"><h3>Track <span class="tag track">CentroidTracker</span></h3><pre>id, center, trail (deque, last 64),
+dist_px, dist_cm,
+missed (frames unseen),
+obj (this frame's blue object)</pre></div>
+      <div class="card"><h3>Result <span class="tag setup">process</span></h3><pre>{ "tracks", "ball", "corners",
+  "blue_mask", "ball_mask" }</pre><p>Example values are illustrative.</p></div>
+    </div>
+  </section>
+</div>
