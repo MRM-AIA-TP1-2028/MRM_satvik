@@ -1,7 +1,7 @@
 """ArUco pose estimation: 4x4, 5x5 and 6x6 markers from the webcam.
 
-Same pose features as aruco_elaborate.py (calibration with rescaling, sub-pixel
-corners, roll/pitch/yaw, depth and distance) without the display extras.
+Calibration with rescaling, sub-pixel corners, roll/pitch/yaw, depth and
+distance.
 
 Run:   python aruco_medium.py        (q = quit)
 """

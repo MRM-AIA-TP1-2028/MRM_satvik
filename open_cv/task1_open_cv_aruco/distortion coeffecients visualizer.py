@@ -8,7 +8,7 @@ with a perfect lens (all zeros).
 Your webcam's values are read from calibration.npz (made by calibrate.py);
 without it, a typical webcam is used.
 
-Run:   python distortion_demo.py
+Run:   python "distortion coeffecients visualizer.py"
 Keys:  r = your webcam's calibrated values,  z = all zeros,  q / Esc = quit
 """
 
