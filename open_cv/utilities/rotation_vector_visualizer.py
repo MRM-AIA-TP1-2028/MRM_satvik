@@ -20,11 +20,16 @@ Typing a value: Enter = apply, Tab = apply and go to the next, Esc = cancel.
        (radians) can be typed in directly.
 Keys:  space = replay the turn,  1-4 = examples,  0 = reset,  q / Esc = quit
 
-The window can be resized. Text uses Pillow if it is installed (nicer fonts),
-otherwise OpenCV's built-in font.
+The window can be resized or made full screen; it is redrawn at the screen's
+full resolution (2x on a Retina Mac). Text uses Pillow if it is installed
+(nicer fonts), otherwise OpenCV's built-in font.
 """
 
+import ctypes
+import ctypes.util
 import functools
+import platform
+import sys
 import time
 
 import cv2
@@ -38,6 +43,9 @@ except ImportError:
 WINDOW = "Rotation vector"
 START_W, START_H = 1240, 760
 MIN_W, MIN_H = 900, 700      # smaller windows are scaled down instead
+# Layout is in screen points; drawing multiplies by K, the device pixels per point
+# (2 on a Retina screen), so the window stays sharp at any size. Set each frame.
+K = 1.0
 PANEL_W = 380
 ANIM_SECONDS = 1.2
 AXIS_LEN = 1.8
@@ -117,42 +125,71 @@ class TextLayer:
         return self.fonts[key]
 
     def width(self, s, size, style="regular"):
-        f = self.font(size, style)
+        """Width in points."""
+        f = self.font(round(size * K), style)
         if f is None:
-            return cv2.getTextSize(ascii_only(s), cv2.FONT_HERSHEY_SIMPLEX, size / 30, 1)[0][0]
-        return f.getlength(s)
+            return cv2.getTextSize(ascii_only(s), cv2.FONT_HERSHEY_SIMPLEX, size * K / 30, 1)[0][0] / K
+        return f.getlength(s) / K
 
     def add(self, s, x, y, size=14, colour=TEXT, style="regular", align="l"):
-        """Queue text with its vertical centre at y; align is l, m or r."""
+        """Queue text with its vertical centre at y (in points); align is l, m or r."""
         self.items.append((s, float(x), float(y), size, colour, style, align))
 
     def render(self, img):
         if Image is None:
             for s, x, y, size, colour, style, align in self.items:
                 s = ascii_only(s)
-                scale = size / 30
+                x, y, scale = x * K, y * K, size * K / 30
                 (w, h), _ = cv2.getTextSize(s, cv2.FONT_HERSHEY_SIMPLEX, scale, 1)
                 x -= {"l": 0, "m": w / 2, "r": w}[align]
                 cv2.putText(img, s, (int(x), int(y + h / 2)), cv2.FONT_HERSHEY_SIMPLEX, scale,
-                            colour, 2 if style == "bold" else 1, cv2.LINE_AA)
+                            colour, thick(2 if style == "bold" else 1), cv2.LINE_AA)
         else:
-            pil = Image.fromarray(img)
-            draw = ImageDraw.Draw(pil)
             for s, x, y, size, colour, style, align in self.items:
-                draw.text((x, y), s, font=self.font(size, style), fill=colour, anchor=align + "m")
-            img[:] = np.asarray(pil)
+                alpha, dx, dy = self.bitmap(s, round(size * K), style, align)
+                blend(img, alpha, int(round(x * K)) + dx, int(round(y * K)) + dy, colour)
         self.items.clear()
+
+    @functools.lru_cache(maxsize=1024)
+    def bitmap(self, s, size, style, align):
+        """Text drawn once into an alpha mask, with its offset from the anchor point."""
+        font, anchor = self.font(size, style), align + "m"
+        x0, y0, x1, y1 = font.getbbox(s, anchor=anchor)
+        mask = Image.new("L", (max(x1 - x0, 1), max(y1 - y0, 1)))
+        ImageDraw.Draw(mask).text((-x0, -y0), s, font=font, fill=255, anchor=anchor)
+        return np.asarray(mask, np.float32)[..., None] / 255, x0, y0
+
+
+def blend(img, alpha, x, y, colour):
+    """Paint colour into img through an alpha mask whose top-left corner is at (x, y)."""
+    h, w = alpha.shape[:2]
+    ix0, iy0, ix1, iy1 = max(x, 0), max(y, 0), min(x + w, img.shape[1]), min(y + h, img.shape[0])
+    if ix0 >= ix1 or iy0 >= iy1:
+        return
+    a = alpha[iy0 - y:iy1 - y, ix0 - x:ix1 - x]
+    roi = img[iy0:iy1, ix0:ix1]
+    roi[:] = roi * (1 - a) + np.array(colour, np.float32) * a
 
 
 # --------------------------------------------------------------------------
 # Small drawing helpers
 # --------------------------------------------------------------------------
 def pt(p):
-    return int(round(p[0])), int(round(p[1]))
+    """A point in points -> integer pixel coordinates."""
+    return int(round(p[0] * K)), int(round(p[1] * K))
+
+
+def thick(t):
+    return max(1, int(round(t * K)))
 
 
 def line(img, p, q, colour, thickness=1):
-    cv2.line(img, pt(p), pt(q), colour, thickness, cv2.LINE_AA)
+    cv2.line(img, pt(p), pt(q), colour, thick(thickness), cv2.LINE_AA)
+
+
+def circle(img, c, r, colour, thickness=-1):
+    cv2.circle(img, pt(c), int(round(r * K)), colour, thickness if thickness < 0 else thick(thickness),
+               cv2.LINE_AA)
 
 
 def shade(colour, k):
@@ -160,10 +197,16 @@ def shade(colour, k):
 
 
 def rounded_rect(img, x0, y0, x1, y1, r, fill, edge=None):
-    x0, y0, x1, y1, r = (int(round(v)) for v in (x0, y0, x1, y1, r))
+    x0, y0, x1, y1, r = (int(round(v * K)) for v in (x0, y0, x1, y1, r))
     if edge is not None:
-        rounded_rect(img, x0, y0, x1, y1, r, edge)
-        x0, y0, x1, y1, r = x0 + 1, y0 + 1, x1 - 1, y1 - 1, max(r - 1, 0)
+        filled_rounded_rect(img, x0, y0, x1, y1, r, edge)
+        e = thick(1)
+        x0, y0, x1, y1, r = x0 + e, y0 + e, x1 - e, y1 - e, max(r - e, 0)
+    filled_rounded_rect(img, x0, y0, x1, y1, r, fill)
+
+
+def filled_rounded_rect(img, x0, y0, x1, y1, r, fill):
+    """Same as rounded_rect, but in pixels."""
     cv2.rectangle(img, (x0 + r, y0), (x1 - r, y1), fill, -1)
     cv2.rectangle(img, (x0, y0 + r), (x1, y1 - r), fill, -1)
     for cx, cy in ((x0 + r, y0 + r), (x1 - r, y0 + r), (x0 + r, y1 - r), (x1 - r, y1 - r)):
@@ -178,7 +221,7 @@ def arrowhead(img, p_from, p_tip, colour, size=10):
     d /= n
     side = np.array([-d[1], d[0]]) * size * 0.5
     tri = np.array([p_tip + d * size * 0.3, p_tip - d * size + side, p_tip - d * size - side])
-    cv2.fillConvexPoly(img, np.round(tri).astype(np.int32), colour, cv2.LINE_AA)
+    cv2.fillConvexPoly(img, np.round(tri * K).astype(np.int32), colour, cv2.LINE_AA)
 
 
 @functools.lru_cache(maxsize=4)
@@ -270,11 +313,16 @@ def draw_box(img, cam, R):
         if not f:
             line(img, px[i], px[j], shade(TEXT, 0.35))
 
-    overlay = img.copy()
-    for corners, ax, facing in front:
-        poly = np.round(px[corners]).astype(np.int32)
-        cv2.fillPoly(overlay, [poly], shade(AXIS_COLOURS[ax], 0.35 + 0.65 * facing), cv2.LINE_AA)
-    cv2.addWeighted(overlay, 0.4, img, 0.6, 0, dst=img)
+    # blend the faces in only over the box's bounding rectangle, not the whole view
+    x0, y0 = np.maximum(np.floor(px.min(axis=0) * K).astype(int) - 2, 0)
+    x1, y1 = np.ceil(px.max(axis=0) * K).astype(int) + 2
+    roi = img[y0:y1, x0:x1]
+    if roi.size:
+        overlay = roi.copy()
+        for corners, ax, facing in front:
+            poly = np.round(px[corners] * K).astype(np.int32) - (x0, y0)
+            cv2.fillPoly(overlay, [poly], shade(AXIS_COLOURS[ax], 0.35 + 0.65 * facing), cv2.LINE_AA)
+        cv2.addWeighted(overlay, 0.4, roi, 0.6, 0, dst=roi)
 
     for (i, j), f in zip(BOX_EDGES, is_front):
         if f:
@@ -282,7 +330,7 @@ def draw_box(img, cam, R):
 
 
 def draw_view(rvec, frac, cam, w, h, text):
-    img = gradient(h, w).copy()
+    img = gradient(round(h * K), round(w * K)).copy()
     draw_grid(img, cam)
 
     neutral = np.eye(3)
@@ -306,7 +354,8 @@ def draw_view(rvec, frac, cam, w, h, text):
             for e, colour in zip(np.eye(3) * AXIS_LEN, AXIS_COLOURS):
                 arc = [cv2.Rodrigues(axis * t)[0] @ e for t in np.linspace(0, angle * frac, 64)]
                 arc_px = cam.project(arc)
-                cv2.polylines(img, [np.round(arc_px).astype(np.int32)], False, colour, 1, cv2.LINE_AA)
+                cv2.polylines(img, [np.round(arc_px * K).astype(np.int32)], False, colour, thick(1),
+                              cv2.LINE_AA)
                 arrowhead(img, arc_px[-6], arc_px[-1], colour, 10)
 
     R, _ = cv2.Rodrigues(rvec * frac)
@@ -338,8 +387,9 @@ def plain_value(deg, unit):
 
 def draw_panel(state, rvec, h, x_off, text):
     """Draw the panel and return it with its clickable regions (in window coords)."""
-    img = np.full((h, PANEL_W, 3), PANEL_BG, np.uint8)
-    cv2.line(img, (0, 0), (0, h), CARD_EDGE, 1)
+    img = np.empty((round(h * K), round(PANEL_W * K), 3), np.uint8)
+    img[:] = PANEL_BG
+    line(img, (0, 0), (0, h), CARD_EDGE)
     hits = []
     mx, my = state["mouse"]
     pad = 22
@@ -385,13 +435,13 @@ def draw_panel(state, rvec, h, x_off, text):
         colour = AXIS_COLOURS[i]
         kx = mid + (tx1 - tx0) / 2 * v / SLIDER_DEG
         label(name, x0, y, 17, colour, "bold")
-        cv2.line(img, (tx0, y), (tx1, y), CARD_EDGE, 4, cv2.LINE_AA)
-        cv2.line(img, (int(mid), y - 6), (int(mid), y + 6), FAINT, 1, cv2.LINE_AA)
-        cv2.line(img, (int(mid), y), (int(kx), y), colour, 4, cv2.LINE_AA)
+        line(img, (tx0, y), (tx1, y), CARD_EDGE, 4)
+        line(img, (mid, y - 6), (mid, y + 6), FAINT)
+        line(img, (mid, y), (kx, y), colour, 4)
         active = state["drag"] and state["drag"][0] == "slider" and state["drag"][1] == i
         r = (tx0 - 10, y - 14, tx1 + 10, y + 14)
-        cv2.circle(img, (int(kx), y), 9 if active or hovered(r) else 8, TEXT, -1, cv2.LINE_AA)
-        cv2.circle(img, (int(kx), y), 9 if active or hovered(r) else 8, colour, 2, cv2.LINE_AA)
+        circle(img, (kx, y), 9 if active or hovered(r) else 8, TEXT)
+        circle(img, (kx, y), 9 if active or hovered(r) else 8, colour, 2)
         hits.append(((x_off + r[0], r[1], x_off + r[2], r[3]), ("slider", i, x_off + tx0, x_off + tx1)))
 
         # Value box: click to type
@@ -404,9 +454,9 @@ def draw_panel(state, rvec, h, x_off, text):
             s = edit["buf"]
             sw = text.width(s, 14, "mono")
             if edit["fresh"] and s:          # whole value selected: typing replaces it
-                cv2.rectangle(img, (int(tx - sw - 2), y - 9), (int(tx + 1), y + 9), ACCENT_DARK, -1)
+                cv2.rectangle(img, pt((tx - sw - 2, y - 9)), pt((tx + 1, y + 9)), ACCENT_DARK, -1)
             elif int(time.perf_counter() * 2) % 2 == 0:
-                cv2.line(img, (tx + 2, y - 8), (tx + 2, y + 8), TEXT, 1)
+                line(img, (tx + 2, y - 8), (tx + 2, y + 8), TEXT)
             label(s, tx, y, 14, TEXT, "mono", "r")
         else:
             label(format_value(v, unit), tx, y, 14, TEXT, "mono", "r")
@@ -461,6 +511,65 @@ def draw_panel(state, rvec, h, x_off, text):
     for c, v in enumerate(np.degrees(rvec)):
         label(f"{round(v, 1) + 0.0:.1f}°", col_x[c], y + 88, 16, WARN, "mono", "r")
     return img, hits
+
+
+# --------------------------------------------------------------------------
+# Window size
+# --------------------------------------------------------------------------
+class NSRect(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double),
+                ("w", ctypes.c_double), ("h", ctypes.c_double)]
+
+
+@functools.lru_cache(maxsize=1)
+def objc_runtime():
+    objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+    objc.objc_getClass.restype = ctypes.c_void_p
+    objc.objc_getClass.argtypes = [ctypes.c_char_p]
+    objc.sel_registerName.restype = ctypes.c_void_p
+    objc.sel_registerName.argtypes = [ctypes.c_char_p]
+    send = ctypes.cast(objc.objc_msgSend, ctypes.c_void_p).value
+    # struct returns go through objc_msgSend_stret on Intel, objc_msgSend on Apple silicon
+    send_struct = send if platform.machine() == "arm64" else \
+        ctypes.cast(objc.objc_msgSend_stret, ctypes.c_void_p).value
+    return objc, send, send_struct
+
+
+def mac_window_size(name):
+    """(width, height) of the window's content in points and its pixels per point, or None."""
+    objc, send, send_struct = objc_runtime()
+
+    def msg(restype, obj, selector, *args, argtypes=(), fn=send):
+        f = ctypes.CFUNCTYPE(restype, ctypes.c_void_p, ctypes.c_void_p, *argtypes)(fn)
+        return f(obj, objc.sel_registerName(selector.encode()), *args)
+
+    app = msg(ctypes.c_void_p, objc.objc_getClass(b"NSApplication"), "sharedApplication")
+    windows = msg(ctypes.c_void_p, app, "windows")
+    for i in range(msg(ctypes.c_ulong, windows, "count")):
+        win = msg(ctypes.c_void_p, windows, "objectAtIndex:", i, argtypes=(ctypes.c_ulong,))
+        title = msg(ctypes.c_char_p, msg(ctypes.c_void_p, win, "title"), "UTF8String")
+        if title and title.decode() == name:
+            frame = msg(NSRect, msg(ctypes.c_void_p, win, "contentView"), "frame", fn=send_struct)
+            return frame.w, frame.h, msg(ctypes.c_double, win, "backingScaleFactor")
+    return None
+
+
+def window_size():
+    """Window size in points, and device pixels per point.
+
+    On macOS cv2.getWindowImageRect() returns the size of the last image shown,
+    not of the window, so a resized or full-screen window would just stretch
+    the old image. Ask Cocoa for the real size instead.
+    """
+    if sys.platform == "darwin":
+        try:
+            size = mac_window_size(WINDOW)
+            if size:
+                return size
+        except (OSError, AttributeError, TypeError):
+            pass
+    _, _, w, h = cv2.getWindowImageRect(WINDOW)
+    return w, h, 1.0
 
 
 # --------------------------------------------------------------------------
@@ -535,6 +644,7 @@ def main():
         state["anim_start"] = -np.inf        # show the result straight away
 
     def on_mouse(event, x, y, flags, _):
+        x, y = x / K, y / K                  # pixels -> points, the layout's units
         state["mouse"] = (x, y)
         if event == cv2.EVENT_LBUTTONDOWN:
             target = next((a for (rx0, ry0, rx1, ry1), a in state["hits"]
@@ -580,10 +690,24 @@ def main():
     text = TextLayer()
     keys = {ord(str(n + 1)): values for n, (_, values) in enumerate(EXAMPLES)}
 
+    global K
+    shown = None
     while True:
-        _, _, w, h = cv2.getWindowImageRect(WINDOW)
-        frame, state["hits"], state["view_w"] = render(state, max(w, MIN_W), max(h, MIN_H), text)
-        cv2.imshow(WINDOW, frame)
+        # Showing a full-resolution frame takes ~50 ms on a full-screen Retina Mac, so
+        # redraw only when something changed, and at 1x while the picture is moving.
+        w, h, scale = window_size()
+        frac = anim_fraction(state)
+        moving = frac < 1 or state["drag"] is not None      # animating, orbiting or sliding
+        edit = state["edit"]
+        hover = state["mouse"] if state["mouse"][0] >= state["view_w"] else None  # panel only
+        wanted = (w, h, scale, moving, frac, tuple(state["deg"]), state["az"], state["el"],
+                  state["dist"], state["unit"], hover,
+                  edit and (edit["i"], edit["buf"], edit["fresh"], int(time.perf_counter() * 2) % 2))
+        if wanted != shown:
+            K = 1.0 if moving else scale
+            frame, state["hits"], state["view_w"] = render(state, max(w, MIN_W), max(h, MIN_H), text)
+            cv2.imshow(WINDOW, frame)
+            shown = wanted
 
         key = cv2.waitKey(15) & 0xFF
         if cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1:
