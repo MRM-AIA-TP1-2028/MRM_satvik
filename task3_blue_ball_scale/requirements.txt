@@ -1,2 +1,0 @@
-opencv-contrib-python>=4.7
-numpy
