@@ -12,7 +12,8 @@ Windows
               relative to the ball and distance traversed
     Masks   - (toggle with 'm') the blue and ball HSV masks
     Ball mask maker - (open with 'b') sliders for the ball's HSV range; left: camera
-              with the ball found using the slider values, right: the mask
+              with the ball found using the slider values, middle: the mask,
+              right: the camera feed after masking
 
 Keys
     q / Esc  quit
@@ -177,7 +178,7 @@ class Track:
 class CentroidTracker:
     """Greedy nearest-centroid matching so each blue object keeps its ID."""
 
-    def __init__(self, max_dist=120, max_missed=15, trail_len=64, min_step=3.0):
+    def __init__(self, max_dist=120, max_missed=15, trail_len=500, min_step=3.0):
         self.max_dist = max_dist
         self.max_missed = max_missed
         self.trail_len = trail_len
@@ -297,9 +298,11 @@ class BallMaskMaker:
             (10, view.shape[0] - 12), GRAY, size=0.6)
 
         h, w = frame.shape[:2]
-        size = (w // 2, h // 2)  # half size so both fit side by side
-        both = np.hstack([cv2.resize(view, size), cv2.resize(cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR), size)])
-        cv2.imshow(self.WINDOW, both)
+        size = (w // 2, h // 2)  # half size so all three fit side by side
+        masked = cv2.bitwise_and(frame, frame, mask=mask)  # camera feed with only the masked pixels kept
+        panels = [cv2.resize(view, size), cv2.resize(cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR), size),
+                  cv2.resize(masked, size)]
+        cv2.imshow(self.WINDOW, np.hstack(panels))
 
     def handle_key(self, key):
         """Return True when the maker should close."""

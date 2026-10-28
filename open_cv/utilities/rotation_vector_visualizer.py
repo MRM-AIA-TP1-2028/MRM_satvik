@@ -18,22 +18,26 @@ Mouse: drag in the view to orbit, scroll to zoom, drag the sliders,
 Typing a value: Enter = apply, Tab = apply and go to the next, Esc = cancel.
        The deg / rad switch sets the unit, so an rvec printed by solvePnP
        (radians) can be typed in directly.
-Keys:  space = replay the turn,  1-4 = examples,  0 = reset,  q / Esc = quit
+Keys:  space = replay the turn,  1-4 = examples,  0 = reset,  f = full screen,
+       q / Esc = quit
 
-The window can be resized or made full screen; it is redrawn at the screen's
-full resolution (2x on a Retina Mac). Text uses Pillow if it is installed
-(nicer fonts), otherwise OpenCV's built-in font.
+The window (pyglet, shown through OpenGL) can be resized or made full screen; it
+is drawn at the screen's full resolution (2x on a Retina Mac). Needs pyglet
+(pip install pyglet). Text uses Pillow if it is installed (nicer fonts),
+otherwise OpenCV's built-in font.
 """
 
-import ctypes
-import ctypes.util
 import functools
-import platform
 import sys
 import time
 
 import cv2
 import numpy as np
+
+try:
+    import pyglet
+except ImportError:
+    raise SystemExit("This needs pyglet for its window: pip install pyglet")
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -514,65 +518,6 @@ def draw_panel(state, rvec, h, x_off, text):
 
 
 # --------------------------------------------------------------------------
-# Window size
-# --------------------------------------------------------------------------
-class NSRect(ctypes.Structure):
-    _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double),
-                ("w", ctypes.c_double), ("h", ctypes.c_double)]
-
-
-@functools.lru_cache(maxsize=1)
-def objc_runtime():
-    objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
-    objc.objc_getClass.restype = ctypes.c_void_p
-    objc.objc_getClass.argtypes = [ctypes.c_char_p]
-    objc.sel_registerName.restype = ctypes.c_void_p
-    objc.sel_registerName.argtypes = [ctypes.c_char_p]
-    send = ctypes.cast(objc.objc_msgSend, ctypes.c_void_p).value
-    # struct returns go through objc_msgSend_stret on Intel, objc_msgSend on Apple silicon
-    send_struct = send if platform.machine() == "arm64" else \
-        ctypes.cast(objc.objc_msgSend_stret, ctypes.c_void_p).value
-    return objc, send, send_struct
-
-
-def mac_window_size(name):
-    """(width, height) of the window's content in points and its pixels per point, or None."""
-    objc, send, send_struct = objc_runtime()
-
-    def msg(restype, obj, selector, *args, argtypes=(), fn=send):
-        f = ctypes.CFUNCTYPE(restype, ctypes.c_void_p, ctypes.c_void_p, *argtypes)(fn)
-        return f(obj, objc.sel_registerName(selector.encode()), *args)
-
-    app = msg(ctypes.c_void_p, objc.objc_getClass(b"NSApplication"), "sharedApplication")
-    windows = msg(ctypes.c_void_p, app, "windows")
-    for i in range(msg(ctypes.c_ulong, windows, "count")):
-        win = msg(ctypes.c_void_p, windows, "objectAtIndex:", i, argtypes=(ctypes.c_ulong,))
-        title = msg(ctypes.c_char_p, msg(ctypes.c_void_p, win, "title"), "UTF8String")
-        if title and title.decode() == name:
-            frame = msg(NSRect, msg(ctypes.c_void_p, win, "contentView"), "frame", fn=send_struct)
-            return frame.w, frame.h, msg(ctypes.c_double, win, "backingScaleFactor")
-    return None
-
-
-def window_size():
-    """Window size in points, and device pixels per point.
-
-    On macOS cv2.getWindowImageRect() returns the size of the last image shown,
-    not of the window, so a resized or full-screen window would just stretch
-    the old image. Ask Cocoa for the real size instead.
-    """
-    if sys.platform == "darwin":
-        try:
-            size = mac_window_size(WINDOW)
-            if size:
-                return size
-        except (OSError, AttributeError, TypeError):
-            pass
-    _, _, w, h = cv2.getWindowImageRect(WINDOW)
-    return w, h, 1.0
-
-
-# --------------------------------------------------------------------------
 # App
 # --------------------------------------------------------------------------
 def anim_fraction(state):
@@ -624,7 +569,18 @@ def render(state, w, h, text):
     return frame, hits, view_w
 
 
+def hide_pyglet_view_error(default_hook=sys.unraisablehook):
+    """pyglet 2.1 on macOS: after set_fullscreen() swaps the view, the old view still gets
+    a mouse-exited event and prints a harmless AttributeError traceback. Hide just that."""
+    def hook(unraisable):
+        e = unraisable.exc_value
+        if not (isinstance(e, AttributeError) and "PygletView" in str(e)):
+            default_hook(unraisable)
+    sys.unraisablehook = hook
+
+
 def main():
+    hide_pyglet_view_error()
     state = {
         "deg": list(EXAMPLES[0][1]),
         "az": np.radians(35), "el": np.radians(25), "dist": 7.0,
@@ -643,89 +599,143 @@ def main():
         state["deg"][i] = int(np.clip(v, -SLIDER_DEG, SLIDER_DEG))
         state["anim_start"] = -np.inf        # show the result straight away
 
-    def on_mouse(event, x, y, flags, _):
-        x, y = x / K, y / K                  # pixels -> points, the layout's units
-        state["mouse"] = (x, y)
-        if event == cv2.EVENT_LBUTTONDOWN:
-            target = next((a for (rx0, ry0, rx1, ry1), a in state["hits"]
-                           if rx0 <= x <= rx1 and ry0 <= y <= ry1), None)
-            if state["edit"] and target != ("field", state["edit"]["i"]):
-                commit_edit(state)           # clicking elsewhere applies the typed value
-            for (rx0, ry0, rx1, ry1), action in state["hits"]:
-                if rx0 <= x <= rx1 and ry0 <= y <= ry1:
-                    if action[0] == "field":
-                        if not state["edit"]:
-                            start_edit(state, action[1])
-                    elif action[0] == "unit":
-                        state["unit"] = action[1]
-                    elif action[0] == "slider":
-                        state["drag"] = action
-                        set_slider(action[1], x, *action[2:])
-                    elif action[0] == "example":
-                        play(action[1])
-                    elif action[0] == "replay":
-                        play()
-                    elif action[0] == "reset":
-                        state["deg"] = [0, 0, 0]
-                    return
+    def on_press(x, y):
+        target = next((a for (rx0, ry0, rx1, ry1), a in state["hits"]
+                       if rx0 <= x <= rx1 and ry0 <= y <= ry1), None)
+        if state["edit"] and target != ("field", state["edit"]["i"]):
+            commit_edit(state)               # clicking elsewhere applies the typed value
+        if target is None:
             if x < state["view_w"]:
                 state["drag"] = ("orbit", x, y)
-        elif event == cv2.EVENT_MOUSEMOVE and state["drag"]:
-            if state["drag"][0] == "slider":
-                set_slider(state["drag"][1], x, *state["drag"][2:])
-            else:
-                _, px, py = state["drag"]
-                state["az"] -= (x - px) * 0.01
-                state["el"] = float(np.clip(state["el"] + (y - py) * 0.01, -1.45, 1.45))
-                state["drag"] = ("orbit", x, y)
-        elif event == cv2.EVENT_LBUTTONUP:
-            state["drag"] = None
-        elif event == cv2.EVENT_MOUSEWHEEL:
-            zoom = 0.9 if cv2.getMouseWheelDelta(flags) > 0 else 1.1
-            state["dist"] = float(np.clip(state["dist"] * zoom, 5.0, 14.0))
+        elif target[0] == "field":
+            if not state["edit"]:
+                start_edit(state, target[1])
+        elif target[0] == "unit":
+            state["unit"] = target[1]
+        elif target[0] == "slider":
+            state["drag"] = target
+            set_slider(target[1], x, *target[2:])
+        elif target[0] == "example":
+            play(target[1])
+        elif target[0] == "replay":
+            play()
+        elif target[0] == "reset":
+            state["deg"] = [0, 0, 0]
 
-    cv2.namedWindow(WINDOW, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(WINDOW, START_W, START_H)
-    cv2.setMouseCallback(WINDOW, on_mouse)
-    text = TextLayer()
-    keys = {ord(str(n + 1)): values for n, (_, values) in enumerate(EXAMPLES)}
+    def on_move(x, y):
+        drag = state["drag"]
+        if drag is None:
+            return
+        if drag[0] == "slider":
+            set_slider(drag[1], x, *drag[2:])
+        else:
+            _, px, py = drag
+            state["az"] -= (x - px) * 0.01
+            state["el"] = float(np.clip(state["el"] + (y - py) * 0.01, -1.45, 1.45))
+            state["drag"] = ("orbit", x, y)
 
-    global K
-    shown = None
-    while True:
-        # Showing a full-resolution frame takes ~50 ms on a full-screen Retina Mac, so
-        # redraw only when something changed, and at 1x while the picture is moving.
-        w, h, scale = window_size()
-        frac = anim_fraction(state)
-        moving = frac < 1 or state["drag"] is not None      # animating, orbiting or sliding
-        edit = state["edit"]
-        hover = state["mouse"] if state["mouse"][0] >= state["view_w"] else None  # panel only
-        wanted = (w, h, scale, moving, frac, tuple(state["deg"]), state["az"], state["el"],
-                  state["dist"], state["unit"], hover,
-                  edit and (edit["i"], edit["buf"], edit["fresh"], int(time.perf_counter() * 2) % 2))
-        if wanted != shown:
-            K = 1.0 if moving else scale
-            frame, state["hits"], state["view_w"] = render(state, max(w, MIN_W), max(h, MIN_H), text)
-            cv2.imshow(WINDOW, frame)
-            shown = wanted
+    examples = {ord(str(n + 1)): values for n, (_, values) in enumerate(EXAMPLES)}
 
-        key = cv2.waitKey(15) & 0xFF
-        if cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1:
-            break
+    def on_key(key):
+        """key is an ASCII code, as cv2.waitKey() gives."""
         if state["edit"]:
-            if key != 255:
-                edit_key(state, key)
-            continue
-        if key in (ord("q"), 27):
-            break
-        if key == ord(" "):
+            edit_key(state, key)
+        elif key in (ord("q"), 27):
+            window.close()
+        elif key == ord("f"):
+            window.set_fullscreen(not window.fullscreen)
+        elif key == ord(" "):
             play()
         elif key == ord("0"):
             state["deg"] = [0, 0, 0]
-        elif key in keys:
-            play(keys[key])
+        elif key in examples:
+            play(examples[key])
 
-    cv2.destroyAllWindows()
+    # pyglet shows each frame as an OpenGL texture: a few ms, against ~50 ms for
+    # cv2.imshow() with a full-screen Retina frame, which is what made it choppy.
+    window = pyglet.window.Window(START_W, START_H, caption=WINDOW, resizable=True)
+    window.set_minimum_size(400, 300)
+    text = TextLayer()
+    shown = {"key": None, "texture": None, "size": (START_W, START_H)}
+
+    def to_layout(x, y):
+        """Window coords (origin bottom-left) -> layout points (origin top-left)."""
+        w, h = shown["size"]
+        return x * w / window.width, (window.height - y) * h / window.height
+
+    def update(_dt):
+        global K
+        # pyglet gives the window size in pixels and the pixels per point as scale
+        K = getattr(window, "scale", 1.0) or 1.0             # 2 on a Retina screen
+        # Smaller windows are drawn at the minimum size and scaled down.
+        w, h = max(window.width / K, MIN_W), max(window.height / K, MIN_H)
+        edit = state["edit"]
+        hover = state["mouse"] if state["mouse"][0] >= state["view_w"] else None  # panel only
+        wanted = (w, h, K, anim_fraction(state), tuple(state["deg"]), state["az"], state["el"],
+                  state["dist"], state["unit"], hover,
+                  edit and (edit["i"], edit["buf"], edit["fresh"], int(time.perf_counter() * 2) % 2))
+        if wanted == shown["key"]:
+            return                           # nothing changed: keep the last frame
+        frame, state["hits"], state["view_w"] = render(state, w, h, text)
+        frame = cv2.flip(frame, 0)                            # OpenGL rows run bottom-up
+        fh, fw = frame.shape[:2]
+        image = pyglet.image.ImageData(fw, fh, "BGR", frame.tobytes(), pitch=fw * 3)
+        if shown["texture"] is None or (shown["texture"].width, shown["texture"].height) != (fw, fh):
+            shown["texture"] = image.get_texture()
+        else:
+            shown["texture"].blit_into(image, 0, 0, 0)
+        shown["key"], shown["size"] = wanted, (w, h)
+
+    @window.event
+    def on_draw():
+        window.clear()
+        if shown["texture"]:
+            shown["texture"].blit(0, 0, width=window.width, height=window.height)
+
+    @window.event
+    def on_mouse_press(x, y, button, modifiers):
+        if button == pyglet.window.mouse.LEFT:
+            state["mouse"] = to_layout(x, y)
+            on_press(*state["mouse"])
+
+    @window.event
+    def on_mouse_release(x, y, button, modifiers):
+        state["drag"] = None
+
+    @window.event
+    def on_mouse_motion(x, y, dx, dy):
+        state["mouse"] = to_layout(x, y)
+
+    @window.event
+    def on_mouse_drag(x, y, dx, dy, buttons, modifiers):
+        state["mouse"] = to_layout(x, y)
+        on_move(*state["mouse"])
+
+    @window.event
+    def on_mouse_scroll(x, y, scroll_x, scroll_y):
+        if scroll_y:
+            zoom = 0.9 if scroll_y > 0 else 1.1
+            state["dist"] = float(np.clip(state["dist"] * zoom, 5.0, 14.0))
+
+    special = {pyglet.window.key.RETURN: 13, pyglet.window.key.ENTER: 13,
+               pyglet.window.key.ESCAPE: 27, pyglet.window.key.TAB: 9,
+               pyglet.window.key.BACKSPACE: 8}
+
+    @window.event
+    def on_key_press(symbol, modifiers):
+        if symbol in special:
+            on_key(special[symbol])
+        return pyglet.event.EVENT_HANDLED    # stop pyglet closing the window on Esc
+
+    @window.event
+    def on_text(s):
+        for ch in s:
+            if " " <= ch <= "~":              # printable ASCII; Enter etc. come via on_key_press
+                on_key(ord(ch))
+
+    pyglet.clock.schedule_interval(update, 1 / 60)
+    update(0)
+    pyglet.app.run(1 / 60)
 
 
 if __name__ == "__main__":
